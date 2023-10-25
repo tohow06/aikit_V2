@@ -1,0 +1,7 @@
+# 排除.idea文件夹
+.idea/
+
+# 排除.vscode文件夹
+.vscode/
+
+__pycache__/
