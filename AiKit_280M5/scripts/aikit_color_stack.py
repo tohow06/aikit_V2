@@ -44,25 +44,6 @@ class ObjectDetect:
             [-6.9, 173.2, 201.5, 179.93, 0.63, 33.83],  # B Sorting area
         ]
 
-        self.color_cubes = []
-        self.color_cubes_count = np.array(
-            [0, 0, 0, 0, 0]
-        )  # red, green, blue/cyan, yellow
-        self.real_cubes = []
-
-        # choose place to set cube 选择放置立方体的地方
-        self.color = 0
-        # parameters to calculate camera clipping parameters 计算相机裁剪参数的参数
-        self.x1 = self.x2 = self.y1 = self.y2 = 0
-        # set cache of real coord 设置真实坐标的缓存
-        self.cache_x = self.cache_y = 0
-        self.cache_cubes = [
-            ColorCube(0, 0, "red"),
-            ColorCube(0, 0, "green"),
-            ColorCube(0, 0, "blue"),
-            ColorCube(0, 0, "cyan"),
-            ColorCube(0, 0, "yellow"),
-        ]
         # set color HSV
         self.HSV = OrderedDict(
             {
@@ -74,6 +55,20 @@ class ObjectDetect:
                 # "yellow": [np.array([22, 93, 0]), np.array([45, 255, 245])],
             }
         )
+
+        self.color_cubes = []
+        self.color_cubes_count = np.zeros(len(self.HSV))
+        self.real_cubes = []
+
+        # choose place to set cube 选择放置立方体的地方
+        self.color = 0
+        # parameters to calculate camera clipping parameters 计算相机裁剪参数的参数
+        self.x1 = self.x2 = self.y1 = self.y2 = 0
+        # set cache of real coord 设置真实坐标的缓存
+        self.cache_x = self.cache_y = 0
+        self.cache_cubes = []
+        for c in self.HSV.keys():
+            self.cache_cubes.append(ColorCube(0, 0, c))
 
         # use to calculate coord between cube and mycobot280
         # 用于计算立方体和 mycobot 之间的坐标
@@ -117,7 +112,7 @@ class ObjectDetect:
     def move(self):
         top_cube = self.real_cubes[1]
         base_cube = self.real_cubes[0]
-        print("Start stacking {} cube on {} cube", top_cube.color, base_cube.color)
+        print(f"Start stacking {top_cube.color} cube on {base_cube.color} cube")
         # 到抓取預備位置
         self.mc.send_angles(self.move_angles[1], 25)
         time.sleep(3)
@@ -180,19 +175,15 @@ class ObjectDetect:
             cache_y = cache_cube.y
             if (abs(x - cache_x) + abs(y - cache_y)) / 2 > 5:  # mm
                 self.cache_cubes[rc.color_id] = rc
-                print("{} cube is moving !!", rc.color)
+                print(f"{rc.color} cube is moving !!")
                 moving = 1
 
         if moving:
+            self.real_cubes = []
             return
         else:
-            self.cache_cubes = [
-                ColorCube(0, 0, "red"),
-                ColorCube(0, 0, "green"),
-                ColorCube(0, 0, "blue"),
-                ColorCube(0, 0, "cyan"),
-                ColorCube(0, 0, "yellow"),
-            ]
+            for c in self.HSV.keys():
+                self.cache_cubes.append(ColorCube(0, 0, c))
             self.move()
 
     # init mycobot280
@@ -285,7 +276,8 @@ class ObjectDetect:
         Calculate the mean of x and y in self.color_cubes with the same color
         and then calculate the coords between cube and mycobot280 save in the self.real_cube
         """
-        unique_colors = set(cube.color for cube in self.color_cubes)
+        index = self.color_cubes_count > 20
+        unique_colors = np.array(list(self.HSV.keys()))[index]
 
         for color in unique_colors:
             sameColorCubes = [cube for cube in self.color_cubes if cube.color == color]
@@ -301,6 +293,7 @@ class ObjectDetect:
 
         self.real_cubes = sorted(self.real_cubes, key=lambda cube: cube.color_id)
         self.color_cubes = []
+        self.color_cubes_count = np.zeros(len(self.HSV))
 
     """
     Calibrate the camera according to the calibration parameters.
@@ -315,7 +308,7 @@ class ObjectDetect:
         frame = cv2.resize(frame, (0, 0), fx=fx, fy=fy, interpolation=cv2.INTER_CUBIC)
         if self.x1 != self.x2:
             # the cutting ratio here is adjusted according to the actual situation
-            print("clip the video along the ARuco")
+            # print("clip the video along the ARuco")
             frame = frame[
                 int(self.y2 * 0.78) : int(self.y1 * 1.1),
                 int(self.x1 * 0.86) : int(self.x2 * 1.08),
@@ -324,73 +317,71 @@ class ObjectDetect:
 
     # detect cube color
 
+    def color_detect(self, img):
+        # set the arrangement of color'HSV
+        x = y = 0
+        raw = img.copy()
+        for mycolor, item in self.HSV.items():
+            # print("mycolor:",mycolor)
+            redLower = np.array(item[0])
+            redUpper = np.array(item[1])
 
-def color_detect(self, img):
-    # set the arrangement of color'HSV
-    x = y = 0
-    raw = img.copy()
-    for mycolor, item in self.HSV.items():
-        # print("mycolor:",mycolor)
-        redLower = np.array(item[0])
-        redUpper = np.array(item[1])
+            # transfrom the img to model of hsv 将图像转换为hsv模型
+            hsv = cv2.cvtColor(raw, cv2.COLOR_BGR2HSV)
 
-        # transfrom the img to model of hsv 将图像转换为hsv模型
-        hsv = cv2.cvtColor(raw, cv2.COLOR_BGR2HSV)
+            # wipe off all color expect color in range 擦掉所有颜色期望范围内的颜色
+            mask = cv2.inRange(hsv, item[0], item[1])
 
-        # wipe off all color expect color in range 擦掉所有颜色期望范围内的颜色
-        mask = cv2.inRange(hsv, item[0], item[1])
+            # a etching operation on a picture to remove edge roughness
+            # 对图片进行蚀刻操作以去除边缘粗糙度
+            erosion = cv2.erode(mask, np.ones((1, 1), np.uint8), iterations=2)
 
-        # a etching operation on a picture to remove edge roughness
-        # 对图片进行蚀刻操作以去除边缘粗糙度
-        erosion = cv2.erode(mask, np.ones((1, 1), np.uint8), iterations=2)
+            # the image for expansion operation, its role is to deepen the color depth in the picture
+            # 用于扩展操作的图像，其作用是加深图片中的颜色深度
+            dilation = cv2.dilate(erosion, np.ones((1, 1), np.uint8), iterations=2)
 
-        # the image for expansion operation, its role is to deepen the color depth in the picture
-        # 用于扩展操作的图像，其作用是加深图片中的颜色深度
-        dilation = cv2.dilate(erosion, np.ones((1, 1), np.uint8), iterations=2)
+            # adds pixels to the image 向图像添加像素
+            # target = cv2.bitwise_and(img, img, mask=dilation)
 
-        # adds pixels to the image 向图像添加像素
-        # target = cv2.bitwise_and(img, img, mask=dilation)
+            # the filtered image is transformed into a binary image and placed in binary
+            # 将过滤后的图像转换为二值图像并放入二值
+            # ret, binary = cv2.threshold(dilation, 127, 255, cv2.THRESH_BINARY)
 
-        # the filtered image is transformed into a binary image and placed in binary
-        # 将过滤后的图像转换为二值图像并放入二值
-        # ret, binary = cv2.threshold(dilation, 127, 255, cv2.THRESH_BINARY)
+            # get the contour coordinates of the image, where contours is the coordinate value, here only the contour is detected
+            # 获取图像的轮廓坐标，其中contours为坐标值，这里只检测轮廓
+            contours, hierarchy = cv2.findContours(
+                dilation, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
 
-        # get the contour coordinates of the image, where contours is the coordinate value, here only the contour is detected
-        # 获取图像的轮廓坐标，其中contours为坐标值，这里只检测轮廓
-        contours, hierarchy = cv2.findContours(
-            dilation, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+            if len(contours) > 0:
+                # do something about misidentification
+                boxes = [
+                    box
+                    for box in [cv2.boundingRect(c) for c in contours]
+                    if min(img.shape[0], img.shape[1]) / 10
+                    < min(box[2], box[3])
+                    < min(img.shape[0], img.shape[1]) / 1
+                ]
+                if boxes:
+                    for box in boxes:
+                        x, y, w, h = box
+                    # find the largest object that fits the requirements 找到符合要求的最大对象
+                    c = max(contours, key=cv2.contourArea)
+                    # get the lower left and upper right points of the positioning object
+                    # 获取定位对象的左下和右上点
+                    x, y, w, h = cv2.boundingRect(c)
+                    # locate the target by drawing rectangle 通过绘制矩形来定位目标
+                    img = cv2.rectangle(img, (x, y), (x + w, y + h), (153, 153, 0), 2)
+                    # calculate the rectangle center 计算矩形中心
+                    x, y = (x * 2 + w) / 2, (y * 2 + h) / 2
+                    # calculate the real coordinates of mycobot280 relative to the target
+                    #  计算 mycobot 相对于目标的真实坐标
 
-        if len(contours) > 0:
-            # do something about misidentification
-            boxes = [
-                box
-                for box in [cv2.boundingRect(c) for c in contours]
-                if min(img.shape[0], img.shape[1]) / 10
-                < min(box[2], box[3])
-                < min(img.shape[0], img.shape[1]) / 1
-            ]
-            if boxes:
-                for box in boxes:
-                    x, y, w, h = box
-                # find the largest object that fits the requirements 找到符合要求的最大对象
-                c = max(contours, key=cv2.contourArea)
-                # get the lower left and upper right points of the positioning object
-                # 获取定位对象的左下和右上点
-                x, y, w, h = cv2.boundingRect(c)
-                # locate the target by drawing rectangle 通过绘制矩形来定位目标
-                img = cv2.rectangle(img, (x, y), (x + w, y + h), (153, 153, 0), 2)
-                # calculate the rectangle center 计算矩形中心
-                x, y = (x * 2 + w) / 2, (y * 2 + h) / 2
-                # calculate the real coordinates of mycobot280 relative to the target
-                #  计算 mycobot 相对于目标的真实坐标
-
-                # 判断是否正常识别
-                if abs(x) + abs(y) <= 0:
-                    continue
-                else:
-                    self.color_cubes.append(ColorCube(x, y, mycolor))
-                    if mycolor in self.HSV:
+                    # 判断是否正常识别
+                    if abs(x) + abs(y) <= 0:
+                        continue
+                    else:
+                        self.color_cubes.append(ColorCube(x, y, mycolor))
                         color_index = list(self.HSV.keys()).index(mycolor)
                         self.color_cubes_count[color_index] += 1
 
@@ -401,12 +392,11 @@ if __name__ == "__main__":
     # open the camera
     if platform.system() == "Windows":
         cap_num = 1
-        cap = cv2.VideoCapture(cap_num, cv2.CAP_V4L)
-
+        cap = cv2.VideoCapture(cap_num)
         if not cap.isOpened():
             cap.open(1)
     elif platform.system() == "Linux":
-        cap_num = 0
+        cap_num = 4
         cap = cv2.VideoCapture(cap_num, cv2.CAP_V4L)
         if not cap.isOpened():
             cap.open()
@@ -434,6 +424,7 @@ if __name__ == "__main__":
         if init_num < 20:
             if detect.get_calculate_params(frame) is None:
                 cv2.imshow("figure", frame)
+                print("can't find two aruco")
                 continue
             else:
                 x1, x2, y1, y2 = detect.get_calculate_params(frame)
@@ -460,6 +451,7 @@ if __name__ == "__main__":
         if nparams < 10:
             if detect.get_calculate_params(frame) is None:
                 cv2.imshow("figure", frame)
+                print("can't find two aruco after crop")
                 continue
             else:
                 x1, x2, y1, y2 = detect.get_calculate_params(frame)
@@ -481,14 +473,14 @@ if __name__ == "__main__":
                 abs(detect.sum_x1 - detect.sum_x2) / 10.0
                 + abs(detect.sum_y1 - detect.sum_y2) / 10.0,
             )
-            print("ok")
+            print("complete params calculation")
             continue
 
         # get detect result 获取检测结果
         detect.color_detect(frame)
 
         # 有兩種顏色以上的方塊被辨識到20次，才使用平均後的方塊當作real_cube
-        if len(np.where(detect.colorCubesCount > 20)) > 2:
+        if np.sum(detect.color_cubes_count > 20) >= 2:
             print("find two kinds of cubes")
             detect.get_real_cube()
             detect.decide_move()
