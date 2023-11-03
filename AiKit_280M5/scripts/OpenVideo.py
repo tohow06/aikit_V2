@@ -4,7 +4,7 @@ import platform
 if platform.system() == "Windows":
     cap_num = 1
 elif platform.system() == "Linux":
-    cap_num = 0
+    cap_num = 4
 
 cap  = cv2.VideoCapture(cap_num)
 cap.set(3,640)

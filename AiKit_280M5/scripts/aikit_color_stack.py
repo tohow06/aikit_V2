@@ -49,8 +49,10 @@ class ObjectDetect:
             {
                 "red": [np.array([0, 43, 46]), np.array([8, 255, 255])],
                 "green": [np.array([35, 43, 35]), np.array([90, 255, 255])],
-                "blue": [np.array([100, 43, 46]), np.array([124, 255, 255])],
-                "cyan": [np.array([78, 43, 46]), np.array([99, 255, 255])],
+                # "blue": [np.array([100, 43, 46]), np.array([124, 255, 255])],
+                "blue": [np.array([110, 43, 46]), np.array([124, 255, 255])],
+                # "cyan": [np.array([78, 43, 46]), np.array([99, 255, 255])],
+                "cyan": [np.array([95, 43, 46]), np.array([99, 255, 255])],
                 "yellow": [np.array([11, 85, 70]), np.array([59, 255, 245])],
                 # "yellow": [np.array([22, 93, 0]), np.array([45, 255, 245])],
             }
@@ -161,6 +163,7 @@ class ObjectDetect:
 
         self.mc.send_angles(self.move_angles[0], 25)
         time.sleep(4.5)
+        sys.exit()
         pass
 
     # decide whether grab cube 决定是否抓取立方体
@@ -309,9 +312,13 @@ class ObjectDetect:
         if self.x1 != self.x2:
             # the cutting ratio here is adjusted according to the actual situation
             # print("clip the video along the ARuco")
+            # frame = frame[
+            #     int(self.y2 * 0.78) : int(self.y1 * 1.1),
+            #     int(self.x1 * 0.86) : int(self.x2 * 1.08),
+            # ]
             frame = frame[
-                int(self.y2 * 0.78) : int(self.y1 * 1.1),
-                int(self.x1 * 0.86) : int(self.x2 * 1.08),
+                int(self.y2 * 0.38) : int(self.y1 * 1.2),
+                int(self.x1 * 0.76) : int(self.x2 * 1.18),
             ]
         return frame
 
@@ -479,6 +486,7 @@ if __name__ == "__main__":
         # get detect result 获取检测结果
         detect.color_detect(frame)
 
+        print(len(detect.color_cubes), detect.color_cubes_count)
         # 有兩種顏色以上的方塊被辨識到20次，才使用平均後的方塊當作real_cube
         if np.sum(detect.color_cubes_count > 20) >= 2:
             print("find two kinds of cubes")
